@@ -30,7 +30,6 @@
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 
 static char *cmd_dabbrev_append(char *, size_t *, char *, size_t);
-static char *cmd_dabbrev_pending(struct args *, struct window_pane *, size_t *);
 static char *cmd_dabbrev_history(struct args *, struct cmdq_item *,
                                  struct window_pane *, size_t *);
 
@@ -52,35 +51,6 @@ static char *cmd_dabbrev_append(char *buf, size_t *len, char *line,
   buf = xrealloc(buf, *len + linelen + 1);
   memcpy(buf + *len, line, linelen);
   *len += linelen;
-  return (buf);
-}
-
-static char *cmd_dabbrev_pending(struct args *args, struct window_pane *wp,
-                                 size_t *len) {
-  struct evbuffer *pending;
-  char *buf, *line, tmp[5];
-  size_t linelen;
-  u_int i;
-
-  pending = input_pending(wp);
-  if (pending == NULL)
-    return (xstrdup(""));
-
-  line = EVBUFFER_DATA(pending);
-  linelen = EVBUFFER_LENGTH(pending);
-
-  buf = xstrdup("");
-  if (args_has(args, 'C')) {
-    for (i = 0; i < linelen; i++) {
-      if (line[i] >= ' ' && line[i] != '\\') {
-        tmp[0] = line[i];
-        tmp[1] = '\0';
-      } else
-        xsnprintf(tmp, sizeof tmp, "\\%03hho", line[i]);
-      buf = cmd_dabbrev_append(buf, len, tmp, strlen(tmp));
-    }
-  } else
-    buf = cmd_dabbrev_append(buf, len, line, linelen);
   return (buf);
 }
 
@@ -172,20 +142,20 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
                                         struct cmdq_item *item) {
   struct args *args = self->args;
   struct client *c;
-  struct window_pane *wp = item->target.wp;
-  char *buf, *cause;
-  const char *bufname;
+  struct window_pane *wp;
+  struct winlink *wl = item->target.wl;
+  char *buf;
+  /* char *buf, *cause; */
+  /* const char *bufname; */
   size_t len;
 
-  len = 0;
-  if (args_has(args, 'P'))
-    buf = cmd_dabbrev_pending(args, wp, &len);
-  else
+  TAILQ_FOREACH(wp, &wl->window->panes, entry) {
+    len = 0;
     buf = cmd_dabbrev_history(args, item, wp, &len);
-  if (buf == NULL)
-    return (CMD_RETURN_ERROR);
+    if (buf == NULL)
+      return (CMD_RETURN_ERROR);
 
-  if (args_has(args, 'p')) {
+    /* if (args_has(args, 'p')) { */
     c = item->client;
     if (c == NULL || (c->session != NULL && !(c->flags & CLIENT_CONTROL))) {
       cmdq_error(item, "can't write to stdout");
@@ -197,18 +167,19 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
     if (args_has(args, 'P') && len > 0)
       evbuffer_add(c->stdout_data, "\n", 1);
     server_client_push_stdout(c);
-  } else {
-    bufname = NULL;
-    if (args_has(args, 'b'))
-      bufname = args_get(args, 'b');
-
-    if (paste_set(buf, len, bufname, &cause) != 0) {
-      cmdq_error(item, "%s", cause);
-      free(cause);
-      free(buf);
-      return (CMD_RETURN_ERROR);
-    }
   }
+  /* } else { */
+  /*   bufname = NULL; */
+  /*   if (args_has(args, 'b')) */
+  /*     bufname = args_get(args, 'b'); */
+  /*  */
+  /*   if (paste_set(buf, len, bufname, &cause) != 0) { */
+  /*     cmdq_error(item, "%s", cause); */
+  /*     free(cause); */
+  /*     free(buf); */
+  /*     return (CMD_RETURN_ERROR); */
+  /*   } */
+  /* } */
 
   return (CMD_RETURN_NORMAL);
 }
