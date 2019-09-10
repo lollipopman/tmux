@@ -28,7 +28,8 @@
  */
 
 static void display_completions(char **matches, int num_matches, int hint_len,
-                                struct client *c, struct cmd_find_state *fs);
+                                struct client *c, struct cmd_find_state *fs,
+                                struct window_pane *wp);
 static int prefix_hint(char **hint, struct window_pane *wp);
 static char **word_parser(char *buf, int *num_words);
 static char **find_matches(char **text, int text_len, char *prefix,
@@ -238,16 +239,18 @@ char **word_parser(char *buf, int *num_words) {
 }
 
 static void display_completions(char **matches, int num_matches, int hint_len,
-                                struct client *c, struct cmd_find_state *fs) {
+                                struct client *c, struct cmd_find_state *fs,
+                                struct window_pane *wp) {
+  struct screen *s = &wp->base;
   struct menu *menu = NULL;
   struct menu_item menu_item;
   char key;
   int flags = 0;
-  int i;
+  int i, m_x, m_y, m_h;
   char *cmd = NULL;
 
   log_debug("%s: %s", __func__, "start menu");
-  menu = menu_create("Completions:");
+  menu = menu_create("");
   key = 'a';
   for (i = 0; i < num_matches; i++) {
     menu_item.name = matches[i];
@@ -257,7 +260,10 @@ static void display_completions(char **matches, int num_matches, int hint_len,
     menu_add_item(menu, &menu_item, NULL, c, fs);
     key++;
   }
-  menu_display(menu, flags, NULL, 1, 1, c, fs, NULL, NULL);
+  m_h = menu->count + 4;
+  m_x = wp->xoff + s->cx - hint_len - 2;
+  m_y = wp->yoff + s->cy + 1;
+  menu_display(menu, flags, NULL, m_x, m_y, c, fs, NULL, NULL);
   log_debug("%s: %s", __func__, "end menu");
 }
 
@@ -297,7 +303,7 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   matches = find_matches(words, num_words, hint, &num_matches);
 
   /* 5. display completions */
-  display_completions(matches, num_matches, strlen(hint), c, fs);
+  display_completions(matches, num_matches, strlen(hint), c, fs, wp);
 
   /* 6. cleanup */
   log_debug("%s: %s", __func__, "start cleanup");
