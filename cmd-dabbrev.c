@@ -89,81 +89,45 @@ static char *cmd_dabbrev_history(struct args *args, struct cmdq_item *item,
   struct grid *gd;
   const struct grid_line *gl;
   struct grid_cell *gc = NULL;
-  int n, with_codes, escape_c0, join_lines, no_trim;
-  u_int i, sx, top, bottom, tmp;
-  char *cause, *buf, *line;
-  const char *Sflag, *Eflag;
+  int with_codes, escape_c0, trim;
+  u_int i, sx, top, bottom;
+  char *buf, *line;
   size_t linelen;
 
-  sx = screen_size_x(&wp->base);
-  if (args_has(args, 'a')) {
-    gd = wp->saved_grid;
-    if (gd == NULL) {
-      if (!args_has(args, 'q')) {
-        cmdq_error(item, "no alternate screen");
-        return (NULL);
-      }
-      return (xstrdup(""));
-    }
-  } else
+  buf = NULL;
+  with_codes = 0;
+  escape_c0 = 0;
+  trim = 0;
+  top = 0;
+
+  RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
+    sx = screen_size_x(&wp->base);
+    /* if (args_has(args, 'a')) { */
+    /*   gd = wp->saved_grid; */
+    /*   if (gd == NULL) { */
+    /*     if (!args_has(args, 'q')) { */
+    /*       cmdq_error(item, "no alternate screen"); */
+    /*       return (NULL); */
+    /*     } */
+    /*     return (xstrdup("")); */
+    /*   } */
+    /* } else */
     gd = wp->base.grid;
 
-  Sflag = args_get(args, 'S');
-  if (Sflag != NULL && strcmp(Sflag, "-") == 0)
-    top = 0;
-  else {
-    n = args_strtonum(args, 'S', INT_MIN, SHRT_MAX, &cause);
-    if (cause != NULL) {
-      top = gd->hsize;
-      free(cause);
-    } else if (n < 0 && (u_int)-n > gd->hsize)
-      top = 0;
-    else
-      top = gd->hsize + n;
-    if (top > gd->hsize + gd->sy - 1)
-      top = gd->hsize + gd->sy - 1;
-  }
-
-  Eflag = args_get(args, 'E');
-  if (Eflag != NULL && strcmp(Eflag, "-") == 0)
     bottom = gd->hsize + gd->sy - 1;
-  else {
-    n = args_strtonum(args, 'E', INT_MIN, SHRT_MAX, &cause);
-    if (cause != NULL) {
-      bottom = gd->hsize + gd->sy - 1;
-      free(cause);
-    } else if (n < 0 && (u_int)-n > gd->hsize)
-      bottom = 0;
-    else
-      bottom = gd->hsize + n;
-    if (bottom > gd->hsize + gd->sy - 1)
-      bottom = gd->hsize + gd->sy - 1;
-  }
 
-  if (bottom < top) {
-    tmp = bottom;
-    bottom = top;
-    top = tmp;
-  }
+    for (i = top; i <= bottom; i++) {
+      line = grid_string_cells(gd, 0, i, sx, &gc, with_codes, escape_c0, trim);
+      linelen = strlen(line);
 
-  with_codes = args_has(args, 'e');
-  escape_c0 = args_has(args, 'C');
-  join_lines = args_has(args, 'J');
-  no_trim = args_has(args, 'N');
+      buf = cmd_dabbrev_append(buf, len, line, linelen);
 
-  buf = NULL;
-  for (i = top; i <= bottom; i++) {
-    line = grid_string_cells(gd, 0, i, sx, &gc, with_codes, escape_c0,
-                             !join_lines && !no_trim);
-    linelen = strlen(line);
+      gl = grid_peek_line(gd, i);
+      if (!(gl->flags & GRID_LINE_WRAPPED))
+        buf[(*len)++] = '\n';
 
-    buf = cmd_dabbrev_append(buf, len, line, linelen);
-
-    gl = grid_peek_line(gd, i);
-    if (!join_lines || !(gl->flags & GRID_LINE_WRAPPED))
-      buf[(*len)++] = '\n';
-
-    free(line);
+      free(line);
+    }
   }
   return (buf);
 }
