@@ -260,9 +260,15 @@ static void display_completions(char **matches, int num_matches, int hint_len,
     menu_add_item(menu, &menu_item, NULL, c, fs);
     key++;
   }
-  m_h = menu->count + 4;
+  m_h = menu->count + 2;
   m_x = wp->xoff + s->cx - hint_len - 2;
-  m_y = wp->yoff + s->cy + 1;
+  /* If menu is too large to place below the cursor then place it above the
+   * cursor */
+  if ((wp->yoff + s->cy + m_h) > wp->window->sy) {
+    m_y = wp->yoff + s->cy - m_h;
+  } else {
+    m_y = wp->yoff + s->cy + 1;
+  }
   menu_display(menu, flags, NULL, m_x, m_y, c, fs, NULL, NULL);
   log_debug("%s: %s", __func__, "end menu");
 }
