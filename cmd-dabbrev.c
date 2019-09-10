@@ -171,35 +171,45 @@ static int prefix_hint(char **strp, struct window_pane *wp) {
   int with_codes, escape_c0, trim;
   struct screen *s = &wp->base;
   struct grid *gd;
+  char *hint_buf;
   char *hint;
   struct grid_cell *gc = NULL;
   char *buf;
   size_t len;
   int i;
+  int max_hint_len = 2048;
 
   with_codes = 0;
   escape_c0 = 0;
   trim = 0;
   gd = wp->base.grid;
 
-  hint = malloc(512 * sizeof(char));
   log_debug("%s: %s", __func__, "grab lines");
   buf =
       grid_string_cells(gd, 0, s->cy, s->cx, &gc, with_codes, escape_c0, trim);
   len = strlen(buf);
 
-  hint = hint + 1;
+  hint_buf = malloc(max_hint_len * sizeof(char));
+  hint = &(hint_buf[max_hint_len - 1]);
+  *hint = '\0';
+
+  /* walk string backwards for hint */
   for (i = len; i >= 0; i--) {
     if (buf[i] == ' ') {
       break;
     } else {
-      hint = hint - 1;
+      hint--;
+      /* hint is too long for str buffer */
+      if (hint < hint_buf) {
+        return (-1);
+      }
       *hint = buf[i];
     }
   }
   log_debug("%s: word '%s'", __func__, hint);
-  *strp = hint;
-  return 0;
+  *strp = xstrdup(hint);
+  free(hint_buf);
+  return (0);
 }
 
 char **word_parser(char *buf, int *num_words) {
@@ -290,11 +300,14 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   display_completions(matches, num_matches, strlen(hint), c, fs);
 
   /* 6. cleanup */
+  log_debug("%s: %s", __func__, "start cleanup");
   free(hint);
   for (i = 0; i < num_words; i++) {
     free(words[i]);
   }
   free(words);
+  log_debug("%s: %s", __func__, "end cleanup");
 
+  log_debug("%s: %s", __func__, "dabbrev success");
   return (CMD_RETURN_NORMAL);
 }
