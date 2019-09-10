@@ -179,15 +179,25 @@ static int prefix_hint(char **strp, struct window_pane *wp) {
   size_t len;
   int i;
   int max_hint_len = 2048;
+  int col_start, col_end, row;
 
   with_codes = 0;
   escape_c0 = 0;
   trim = 0;
   gd = wp->base.grid;
 
-  log_debug("%s: %s", __func__, "grab lines");
-  buf =
-      grid_string_cells(gd, 0, s->cy, s->cx, &gc, with_codes, escape_c0, trim);
+  log_debug("%s: %s", __func__, "begin");
+  col_start = 0;
+  row = s->cy;
+  col_end = s->cx;
+  log_debug("%s: cx: %d", __func__, s->cx);
+  log_debug("%s: cy: %d", __func__, s->cy);
+  log_debug("%s: row: %d", __func__, row);
+  log_debug("%s: col start: %d", __func__, col_start);
+  log_debug("%s: col end: %d", __func__, col_end);
+  buf = grid_string_cells(gd, col_start, row, col_end, &gc, with_codes,
+                          escape_c0, trim);
+  log_debug("%s: buf '%s'", __func__, buf);
   len = strlen(buf);
 
   hint_buf = malloc(max_hint_len * sizeof(char));
@@ -210,6 +220,7 @@ static int prefix_hint(char **strp, struct window_pane *wp) {
   log_debug("%s: word '%s'", __func__, hint);
   *strp = xstrdup(hint);
   free(hint_buf);
+  log_debug("%s: %s", __func__, "success");
   return (0);
 }
 
