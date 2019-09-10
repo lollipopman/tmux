@@ -268,27 +268,33 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   c = item->client;
   matches = NULL;
 
+  /* 1. grab hint */
   if (prefix_hint(&hint, wp) != 0) {
     return (CMD_RETURN_ERROR);
   }
 
-  /* grab buffer */
+  /* 2. grab buffer panes */
   pane_len = 0;
   buf = cmd_dabbrev_history(args, item, wp, &pane_len);
   if (buf == NULL) {
     return (CMD_RETURN_ERROR);
   }
-  /* grab buffer end */
 
+  /* 3. parse out words */
   words = word_parser(buf, &num_words);
+
+  /* 4. find completions */
   matches = find_matches(words, num_words, hint, &num_matches);
+
+  /* 5. display completions */
   display_completions(matches, num_matches, strlen(hint), c, fs);
 
-  /* free! */
+  /* 6. cleanup */
   free(hint);
   for (i = 0; i < num_words; i++) {
     free(words[i]);
   }
   free(words);
+
   return (CMD_RETURN_NORMAL);
 }
