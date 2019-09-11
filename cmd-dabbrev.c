@@ -27,6 +27,8 @@
  * Dynamic Abbreviate, i.e. dabbrev
  */
 
+static char *cmd_dabbrev_gd_buf(char *buf, struct grid *gd, u_int sx,
+                                size_t *len);
 static void display_completions(char **matches, int num_matches, int hint_len,
                                 struct client *c, struct cmd_find_state *fs,
                                 struct window_pane *wp);
@@ -37,8 +39,7 @@ static char **find_matches(char **text, int text_len, char *prefix,
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 
 static char *cmd_dabbrev_append(char *, size_t *, char *, size_t);
-static char *cmd_dabbrev_history(struct args *, struct cmdq_item *,
-                                 struct window_pane *, size_t *);
+static char *cmd_dabbrev_window_history(struct window_pane *, size_t *);
 
 static char **find_matches(char **text, int text_len, char *prefix,
                            int *num_matches) {
@@ -76,60 +77,64 @@ const struct cmd_entry cmd_dabbrev_entry = {
     .flags = CMD_AFTERHOOK,
     .exec = cmd_dabbrev_exec};
 
-static char *cmd_dabbrev_append(char *buf, size_t *len, char *line,
+static char *cmd_dabbrev_append(char *buf, size_t *buflen, char *line,
                                 size_t linelen) {
-  buf = xrealloc(buf, *len + linelen + 1);
-  memcpy(buf + *len, line, linelen);
-  *len += linelen;
+  buf = xrealloc(buf, *buflen + linelen + 1);
+  memcpy(buf + *buflen, line, linelen);
+  *buflen += linelen;
   return (buf);
 }
 
-static char *cmd_dabbrev_history(struct args *args, struct cmdq_item *item,
-                                 struct window_pane *wp, size_t *len) {
+static char *cmd_dabbrev_window_history(struct window_pane *wp,
+                                        size_t *buflen) {
+  u_int sx;
   struct grid *gd;
-  const struct grid_line *gl;
-  struct grid_cell *gc = NULL;
-  int with_codes, escape_c0, trim;
-  u_int i, sx, top, bottom;
-  char *buf, *line;
-  size_t linelen;
-
-  buf = NULL;
-  with_codes = 0;
-  escape_c0 = 0;
-  trim = 0;
-  top = 0;
+  char *buf = NULL;
 
   RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
     sx = screen_size_x(&wp->base);
-    /* if (args_has(args, 'a')) { */
-    /*   gd = wp->saved_grid; */
-    /*   if (gd == NULL) { */
-    /*     if (!args_has(args, 'q')) { */
-    /*       cmdq_error(item, "no alternate screen"); */
-    /*       return (NULL); */
-    /*     } */
-    /*     return (xstrdup("")); */
-    /*   } */
-    /* } else */
     gd = wp->base.grid;
-
-    bottom = gd->hsize + gd->sy - 1;
-
-    for (i = top; i <= bottom; i++) {
-      line = grid_string_cells(gd, 0, i, sx, &gc, with_codes, escape_c0, trim);
-      linelen = strlen(line);
-
-      buf = cmd_dabbrev_append(buf, len, line, linelen);
-
-      gl = grid_peek_line(gd, i);
-      if (!(gl->flags & GRID_LINE_WRAPPED))
-        buf[(*len)++] = '\n';
-
-      free(line);
+    buf = cmd_dabbrev_gd_buf(buf, gd, sx, buflen);
+    /* copy alternate screen to buf if available */
+    if (wp->saved_grid != NULL) {
+      gd = wp->saved_grid;
+      buf = cmd_dabbrev_gd_buf(buf, gd, sx, buflen);
     }
   }
   return (buf);
+}
+
+static char *cmd_dabbrev_gd_buf(char *buf, struct grid *gd, u_int sx,
+                                size_t *buflen) {
+  struct grid_cell *gc = NULL;
+  const struct grid_line *gl;
+  int with_codes, escape_c0, trim;
+  u_int i, top, bottom;
+  size_t linelen;
+  char *line;
+
+  top = 0;
+  with_codes = 0;
+  escape_c0 = 0;
+  trim = 0;
+
+  bottom = gd->hsize + gd->sy - 1;
+
+  for (i = top; i <= bottom; i++) {
+    line = grid_string_cells(gd, 0, i, sx, &gc, with_codes, escape_c0, trim);
+    linelen = strlen(line);
+
+    buf = cmd_dabbrev_append(buf, buflen, line, linelen);
+
+    gl = grid_peek_line(gd, i);
+    if (!(gl->flags & GRID_LINE_WRAPPED)) {
+      buf[(*buflen)++] = '\n';
+    }
+
+    free(line);
+  }
+
+  return buf;
 }
 
 static int prefix_hint(char **strp, struct window_pane *wp) {
@@ -250,9 +255,8 @@ static void display_completions(char **matches, int num_matches, int hint_len,
 
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
                                         struct cmdq_item *item) {
-  struct args *args = self->args;
   struct window_pane *wp = item->target.wp;
-  size_t pane_len;
+  size_t histlen;
   int i;
   char **words;
   char **matches;
@@ -271,13 +275,14 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   }
 
   /* 2. grab buffer panes */
-  pane_len = 0;
-  buf = cmd_dabbrev_history(args, item, wp, &pane_len);
+  histlen = 0;
+  buf = cmd_dabbrev_window_history(wp, &histlen);
   if (buf == NULL) {
     return (CMD_RETURN_ERROR);
   }
 
   /* 3. parse out words */
+  buf[histlen] = '\0';
   words = word_parser(buf, &num_words);
 
   /* 4. find completions */
