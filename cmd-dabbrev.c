@@ -21,48 +21,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dabbrev-parser.h"
 #include "tmux.h"
 
 /*
  * Dynamic Abbreviate, i.e. dabbrev
  */
 
-static char *cmd_dabbrev_gd_buf(char *buf, struct grid *gd, u_int sx,
-                                size_t *len);
-static void display_completions(char **matches, int num_matches, int hint_len,
-                                struct client *c, struct cmd_find_state *fs,
+static char *cmd_dabbrev_gd_buf(char *, struct grid *, u_int, size_t *);
+static void display_completions(wchar_t **matches, int num_matches,
+                                int hint_len, struct client *c,
+                                struct cmd_find_state *fs,
                                 struct window_pane *wp);
 static int prefix_hint(char **hint, struct window_pane *wp);
-static char **word_parser(char *buf, int *num_words);
-static char **find_matches(char **text, int text_len, char *prefix,
-                           int *num_matches);
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 
 static char *cmd_dabbrev_append(char *, size_t *, char *, size_t);
 static char *cmd_dabbrev_window_history(struct window_pane *, size_t *);
-
-static char **find_matches(char **text, int text_len, char *prefix,
-                           int *num_matches) {
-  size_t prefix_len;
-  char **matches = NULL;
-  int i;
-
-  prefix_len = strlen(prefix);
-  for (i = 0; i < text_len; i++) {
-    if (strncmp(prefix, text[i], prefix_len) == 0) {
-      (*num_matches)++;
-      matches = reallocarray(matches, sizeof(char *), *num_matches);
-      matches[*num_matches - 1] = strdup(text[i]);
-    }
-  }
-
-  log_debug("%s: num_matches %d", __func__, *num_matches);
-  for (i = 0; i < *num_matches; i++) {
-    log_debug("%s: match '%s'", __func__, matches[i]);
-  }
-
-  return matches;
-}
+struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
+wchar_t cmd_dabbrev_get_next_grid_cell(struct grid_handle *);
 
 const struct cmd_entry cmd_dabbrev_entry = {
     .name = "dabbrev",
@@ -102,6 +79,41 @@ static char *cmd_dabbrev_window_history(struct window_pane *wp,
     }
   }
   return (buf);
+}
+
+struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
+  struct grid_handle *gh;
+  struct grid *gd;
+
+  gd = wp->base.grid;
+
+  gh = xmalloc(sizeof *gh);
+  gh->grid = gd;
+  gh->x = 0;
+  gh->sx = screen_size_x(&wp->base);
+  gh->sy = gd->hsize + gd->sy - 1;
+  gh->y = 0;
+
+  return (gh);
+}
+
+wchar_t cmd_dabbrev_get_next_grid_cell(struct grid_handle *gh) {
+
+  enum utf8_state utf8s;
+  wchar_t wc;
+  struct grid_cell gc;
+
+  if (gh->x < 10) {
+    grid_get_cell(gh->grid, gh->x, gh->y, &gc);
+    utf8s = utf8_combine(&gc.data, &wc);
+    if (utf8s == UTF8_ERROR) {
+      wc = L'?';
+    }
+    gh->x++;
+    return (wc);
+  } else {
+    return (WEOF);
+  }
 }
 
 static char *cmd_dabbrev_gd_buf(char *buf, struct grid *gd, u_int sx,
@@ -193,33 +205,19 @@ static int prefix_hint(char **strp, struct window_pane *wp) {
   return (0);
 }
 
-char **word_parser(char *buf, int *num_words) {
-  char *cur;
-  int i;
-  int words_size = 4096;
-  char **words;
+static char *wcstr_tombs(wchar_t **wcstr) {
+  size_t len;
+  char *s;
 
-  words = malloc(words_size * sizeof(char *));
-  *num_words = 0;
-
-  /* XXX Is buf guaranteed to be null terminated? */
-  /* str[len] = '\0'; */
-  cur = buf;
-  i = 0;
-  while (sscanf(cur, "%ms%n", &(words[*num_words]), &i) == 1) {
-    cur += i;
-    (*num_words)++;
-    if (*num_words > (words_size - 1)) {
-      words = reallocarray(words, sizeof(char *), words_size + 4096);
-      words_size += 4096;
-    }
-  }
-
-  return words;
+  len = wcsrtombs(NULL, wcstr, 0, NULL);
+  s = xmalloc(len + 1);
+  wcsrtombs(s, wcstr, len, NULL);
+  return (s);
 }
 
-static void display_completions(char **matches, int num_matches, int hint_len,
-                                struct client *c, struct cmd_find_state *fs,
+static void display_completions(wchar_t **matches, int num_matches,
+                                int hint_len, struct client *c,
+                                struct cmd_find_state *fs,
                                 struct window_pane *wp) {
   struct screen *s = &wp->base;
   struct menu *menu = NULL;
@@ -228,14 +226,17 @@ static void display_completions(char **matches, int num_matches, int hint_len,
   int flags = 0;
   int i, m_x, m_y, m_h;
   char *cmd = NULL;
+  char *match;
 
   log_debug("%s: %s", __func__, "start menu");
   menu = menu_create("");
   key = 'a';
   for (i = 0; i < num_matches; i++) {
-    menu_item.name = matches[i];
+    match = wcstr_tombs(&(matches[i]));
+    log_debug("%s: %s", __func__, "match converted");
+    menu_item.name = match;
     menu_item.key = key;
-    asprintf(&cmd, "%s%s", "send-keys -l ", matches[i] + hint_len);
+    asprintf(&cmd, "%s%s", "send-keys -l ", match + hint_len);
     menu_item.command = cmd;
     menu_add_item(menu, &menu_item, NULL, c, fs);
     key++;
@@ -249,6 +250,7 @@ static void display_completions(char **matches, int num_matches, int hint_len,
   } else {
     m_y = wp->yoff + s->cy + 1;
   }
+  log_debug("%s: %s", __func__, "ready to display menu");
   menu_display(menu, flags, NULL, m_x, m_y, c, fs, NULL, NULL);
   log_debug("%s: %s", __func__, "end menu");
 }
@@ -257,17 +259,14 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
                                         struct cmdq_item *item) {
   struct window_pane *wp = item->target.wp;
   size_t histlen;
-  int i;
-  char **words;
-  char **matches;
   int num_matches = 0;
-  int num_words = 0;
   char *hint;
   char *buf;
   struct cmd_find_state *fs = &item->target;
   struct client *c;
+  wchar_t **matches;
+
   c = item->client;
-  matches = NULL;
 
   /* 1. grab hint */
   if (prefix_hint(&hint, wp) != 0) {
@@ -281,23 +280,20 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
     return (CMD_RETURN_ERROR);
   }
 
-  /* 3. parse out words */
-  buf[histlen] = '\0';
-  words = word_parser(buf, &num_words);
+  log_debug("%s: %s", __func__, "complete_hint");
+  num_matches = complete_hint(wp, L"fi", &matches);
 
-  /* 4. find completions */
-  matches = find_matches(words, num_words, hint, &num_matches);
-
+  log_debug("%s: %s: %d", __func__, "display matches", num_matches);
   /* 5. display completions */
   display_completions(matches, num_matches, strlen(hint), c, fs, wp);
 
   /* 6. cleanup */
   log_debug("%s: %s", __func__, "start cleanup");
-  free(hint);
-  for (i = 0; i < num_words; i++) {
-    free(words[i]);
-  }
-  free(words);
+  /* free(hint); */
+  /* for (i = 0; i < num_words; i++) { */
+  /*   free(words[i]); */
+  /* } */
+  /* free(words); */
   log_debug("%s: %s", __func__, "end cleanup");
 
   log_debug("%s: %s", __func__, "dabbrev success");

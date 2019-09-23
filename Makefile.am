@@ -67,6 +67,10 @@ dist_tmux_SOURCES = \
 	cmd-break-pane.c \
 	cmd-capture-pane.c \
 	cmd-dabbrev.c \
+  dabbrev-parser.c \
+  dabbrev-parser.h \
+	wtst.c \
+	wtst.h \
 	cmd-choose-tree.c \
 	cmd-command-prompt.c \
 	cmd-confirm-before.c \
