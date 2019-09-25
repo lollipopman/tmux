@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <limits.h>
 #include <locale.h>
 #include <netinet/in.h>

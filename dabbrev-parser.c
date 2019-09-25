@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "tmux.h"
 #include "wtst.h"
 #include <locale.h>
@@ -33,7 +35,10 @@ struct input_state {
   const struct input_transition *transitions;
 };
 
-int complete_hint(struct window_pane *, const wchar_t *, wchar_t ***);
+void dabbrev_parser_init(struct input_ctx *);
+int last_word(struct grid_handle *, wchar_t **);
+size_t complete_hint(struct window_pane *, const wchar_t *, wchar_t ***);
+int parse_grid(struct grid_handle *, struct input_ctx *);
 static void input_set_state(struct input_ctx *,
                             const struct input_transition *);
 
@@ -52,7 +57,6 @@ static void uri_auth_begin(struct input_ctx *);
 static int word_collect(struct input_ctx *);
 static int word_print(struct input_ctx *);
 
-static int iswperiod(wint_t wc);
 static int iswcolon(wint_t wc);
 static int iswurischeme(wint_t wc);
 static int iswquote(wint_t wc);
@@ -181,8 +185,6 @@ static int iswquote(wint_t wc) {
 
 static int iswpipe(wint_t wc) { return (wc == L'|'); }
 
-static int iswperiod(wint_t wc) { return (wc == L'.'); }
-
 static int iswforwardslash(wint_t wc) { return (wc == L'/'); }
 
 static int word_collect(struct input_ctx *ictx) {
@@ -229,31 +231,59 @@ static void input_set_state(struct input_ctx *ictx,
     ictx->state->enter(ictx);
 }
 
-int complete_hint(struct window_pane *wp, const wchar_t *hint,
-                  wchar_t ***word_list) {
+size_t complete_hint(struct window_pane *wp, const wchar_t *hint,
+                     wchar_t ***word_list) {
   struct input_ctx *ictx;
-  struct input_ctx ctx;
   struct grid_handle *gh;
-  const struct input_transition *itr;
-
-  WCLog = fopen("/tmp/parser.out", "w");
 
   gh = cmd_dabbrev_open_grid(wp);
+  ictx = xcalloc(1, sizeof *ictx);
+  dabbrev_parser_init(ictx);
+  parse_grid(gh, ictx);
+  return (word_gather(ictx->wtst_root, hint, word_list));
+}
 
-  /* setlocale(LC_CTYPE, "en_US.UTF-8"); */
+int last_word(struct grid_handle *gh, wchar_t **word) {
+  struct input_ctx *ictx;
+  static FILE *LWLog;
 
-  ctx.state = &input_state_ground;
-  ctx.wtst_root = NULL;
-  ictx = &ctx;
+  LWLog = fopen("/tmp/last_word.out", "w");
+  fwprintf(LWLog, L"begin\n");
+  ictx = xcalloc(1, sizeof *ictx);
+  dabbrev_parser_init(ictx);
+  fwprintf(LWLog, L"parsing\n");
+  fclose(LWLog);
+
+  parse_grid(gh, ictx);
+
+  LWLog = fopen("/tmp/last_word.out", "a");
+  fwprintf(LWLog, L"done parsing\n");
+  *word = wcsdup(ictx->word);
+  fwprintf(LWLog, L"word: '%ls'\n", *word);
+  fclose(LWLog);
+  return 1;
+}
+
+void dabbrev_parser_init(struct input_ctx *ictx) {
+
+  ictx->state = &input_state_ground;
+  ictx->wtst_root = NULL;
   input_ground(ictx);
+}
+
+int parse_grid(struct grid_handle *gh, struct input_ctx *ictx) {
+  const struct input_transition *itr;
+
+  WCLog = fopen("/tmp/parser.out", "a");
+  fwprintf(WCLog, L"\nStart Parsing\n");
 
   setlocale(LC_CTYPE, "en_US.UTF-8");
 
   /* Parse the input. */
   for (;;) {
-    ictx->wc = cmd_dabbrev_get_next_grid_cell(gh);
+    ictx->wc = cmd_dabbrev_get_next_grid_wchar(gh);
     if (ictx->wc == WEOF) {
-      fwprintf(WCLog, L"EOF");
+      fwprintf(WCLog, L"WEOF\n");
       break;
     }
 
@@ -286,5 +316,5 @@ int complete_hint(struct window_pane *wp, const wchar_t *hint,
   }
 
   fclose(WCLog);
-  return (word_gather(ictx->wtst_root, hint, word_list));
+  return (1);
 }

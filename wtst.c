@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <limits.h>
 #include <locale.h>
 #include <netinet/in.h>
@@ -23,7 +25,6 @@ struct wchar_node {
 };
 
 void word_add(struct wchar_node **, const wchar_t *);
-static void word_free1(struct wchar_node *);
 static wchar_t *word_find1(struct wchar_node *, const wchar_t *, size_t,
                            size_t *);
 static wchar_t *word_find(struct wchar_node *, const wchar_t *, size_t,
@@ -208,7 +209,6 @@ static void word_gather1(struct wchar_node *wn, const wchar_t *s_prefix,
                          wchar_t ***word_listp, size_t *num_wordsp) {
   int prefix_len;
   wchar_t *word;
-  size_t i;
 
   /* If the node is NULL, this is the end of the tree. No match. */
   if (wn == NULL) {

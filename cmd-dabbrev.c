@@ -39,7 +39,7 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 static char *cmd_dabbrev_append(char *, size_t *, char *, size_t);
 static char *cmd_dabbrev_window_history(struct window_pane *, size_t *);
 struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
-wchar_t cmd_dabbrev_get_next_grid_cell(struct grid_handle *);
+wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *);
 
 const struct cmd_entry cmd_dabbrev_entry = {
     .name = "dabbrev",
@@ -89,31 +89,121 @@ struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
 
   gh = xmalloc(sizeof *gh);
   gh->grid = gd;
+  gh->gl = grid_peek_line(gd, 0);
   gh->x = 0;
-  gh->sx = screen_size_x(&wp->base);
-  gh->sy = gd->hsize + gd->sy - 1;
   gh->y = 0;
+  gh->curx = 0;
+  gh->cury = 0;
+  gh->sx = gd->sx;
+  gh->sy = gd->sy;
 
   return (gh);
 }
 
-wchar_t cmd_dabbrev_get_next_grid_cell(struct grid_handle *gh) {
+/*
+ * 1. check if cell is in line
+ *   1a. if it is not get the next line
+ *     1i. if line is wrapped get first char of new line
+ *     1ii. else return \n
+ *   1b. else
+ *     1i. if the cell is paded skip to the next cell
+ *     1i. else return cell
+ *
+ */
+
+wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
 
   enum utf8_state utf8s;
-  wchar_t wc;
+  wint_t wc;
   struct grid_cell gc;
+  u_int xx, yy;
+  FILE *cell_log;
+  int found_wchar;
+  struct grid *gd;
 
-  if (gh->x < 10) {
-    grid_get_cell(gh->grid, gh->x, gh->y, &gc);
-    utf8s = utf8_combine(&gc.data, &wc);
-    if (utf8s == UTF8_ERROR) {
-      wc = L'?';
+  gd = gh->grid;
+
+  cell_log = fopen("/tmp/cell_log.out", "a");
+  fwprintf(cell_log, L"\nBEGIN GET WCHAR\n");
+
+  found_wchar = 0;
+  for (yy = gh->cury; yy < gh->y + gh->sy; yy++) {
+    fwprintf(cell_log, L"top of y for\n");
+
+    if (gh->cury != yy) {
+      gh->curx = gh->x;
+      fwprintf(cell_log, L"Need new line!\n");
+      gh->cury = yy;
+      if (yy >= gd->hsize + gd->sy) {
+        fwprintf(cell_log, L"End of grid WEOF\n");
+        found_wchar = 1;
+        wc = WEOF;
+        break;
+      }
+      gh->gl = grid_peek_line(gd, yy);
+      if (gh->gl->flags & GRID_LINE_WRAPPED) {
+        /* grab char from new line */
+        fwprintf(cell_log, L"wrapped line\n");
+      } else {
+        found_wchar = 1;
+        wc = L'\n';
+        break;
+      }
     }
-    gh->x++;
-    return (wc);
-  } else {
-    return (WEOF);
+
+    for (xx = gh->curx; xx < gh->x + gh->sx; xx++) {
+      fwprintf(cell_log, L"top of x for\n");
+      fflush(cell_log);
+
+      /* XXX Need a new line, put in func? */
+      if (gh->gl == NULL || xx >= gh->gl->cellsize) {
+        fwprintf(cell_log, L"gl is NULL or xx > cellsize\n");
+        break;
+      }
+
+      fwprintf(cell_log, L"get cell: %d,%d\n", xx, yy);
+      grid_get_cell(gd, xx, yy, &gc);
+      if (gc.flags & GRID_FLAG_PADDING) {
+        fwprintf(cell_log, L"\tcell is padded\n");
+        continue;
+      } else if (gc.flags & GRID_FLAG_CLEARED) {
+        /* XXX should I get here? */
+        fwprintf(cell_log, L"\tcell is cleared\n");
+        continue;
+      } else {
+        utf8s = utf8_combine(&gc.data, &wc);
+        if (utf8s == UTF8_ERROR) {
+          fwprintf(cell_log, L"\tbad utf8 combine\n");
+          wc = L'?';
+        }
+        found_wchar = 1;
+        gh->curx = xx + 1;
+        fwprintf(cell_log, L"found wchar break, '%lc'\n", wc);
+        break;
+      }
+      fwprintf(cell_log, L"end of x for\n");
+    }
+
+    if (found_wchar) {
+      fwprintf(cell_log, L"found wchar break\n");
+      break;
+    }
+
+    fwprintf(cell_log, L"end of y for\n");
+    fflush(cell_log);
   }
+
+  if (!found_wchar) {
+    wc = WEOF;
+  }
+  if (wc == WEOF) {
+    fwprintf(cell_log, L"done got wchar_t: 'WEOF'\n");
+  } else {
+    fwprintf(cell_log, L"done got wchar_t: '%lc'\n", wc);
+  }
+  fwprintf(cell_log, L"END GET WCHAR\n");
+  fclose(cell_log);
+  return (wc);
 }
 
 static char *cmd_dabbrev_gd_buf(char *buf, struct grid *gd, u_int sx,
@@ -205,6 +295,37 @@ static int prefix_hint(char **strp, struct window_pane *wp) {
   return (0);
 }
 
+/*
+ * XXX: support wrapped lines
+ */
+static int wcprefix_hint(wchar_t **wcs, struct window_pane *wp) {
+  struct screen *s = &wp->base;
+  struct grid_handle *gh;
+  struct grid *gd;
+
+  log_debug("%s: %s", __func__, "begin");
+
+  gd = wp->base.grid;
+
+  gh = xmalloc(sizeof *gh);
+  gh->grid = gd;
+  gh->gl = grid_peek_line(gd, s->cy);
+  gh->x = 0;
+  gh->y = s->cy;
+  gh->curx = 0;
+  gh->cury = s->cy;
+  gh->sx = s->cx;
+  gh->sy = 1;
+
+  log_debug("%s: cx: %d", __func__, s->cx);
+  log_debug("%s: cy: %d", __func__, s->cy);
+
+  last_word(gh, wcs);
+  log_debug("%s: done parsing", __func__);
+
+  return (1);
+}
+
 static char *wcstr_tombs(wchar_t **wcstr) {
   size_t len;
   char *s;
@@ -258,10 +379,8 @@ static void display_completions(wchar_t **matches, int num_matches,
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
                                         struct cmdq_item *item) {
   struct window_pane *wp = item->target.wp;
-  size_t histlen;
   int num_matches = 0;
-  char *hint;
-  char *buf;
+  wchar_t *hint;
   struct cmd_find_state *fs = &item->target;
   struct client *c;
   wchar_t **matches;
@@ -269,23 +388,24 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   c = item->client;
 
   /* 1. grab hint */
-  if (prefix_hint(&hint, wp) != 0) {
-    return (CMD_RETURN_ERROR);
-  }
+  /* if (prefix_hint(&hint, wp) != 0) { */
+  /*   return (CMD_RETURN_ERROR); */
+  /* } */
+  wcprefix_hint(&hint, wp);
 
   /* 2. grab buffer panes */
-  histlen = 0;
-  buf = cmd_dabbrev_window_history(wp, &histlen);
-  if (buf == NULL) {
-    return (CMD_RETURN_ERROR);
-  }
+  /* histlen = 0; */
+  /* buf = cmd_dabbrev_window_history(wp, &histlen); */
+  /* if (buf == NULL) { */
+  /*   return (CMD_RETURN_ERROR); */
+  /* } */
 
   log_debug("%s: %s", __func__, "complete_hint");
-  num_matches = complete_hint(wp, L"fi", &matches);
+  num_matches = complete_hint(wp, hint, &matches);
 
   log_debug("%s: %s: %d", __func__, "display matches", num_matches);
   /* 5. display completions */
-  display_completions(matches, num_matches, strlen(hint), c, fs, wp);
+  display_completions(matches, num_matches, wcslen(hint), c, fs, wp);
 
   /* 6. cleanup */
   log_debug("%s: %s", __func__, "start cleanup");

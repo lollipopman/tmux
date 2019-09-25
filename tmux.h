@@ -496,10 +496,13 @@ struct msg_command_data {
 
 struct grid_handle {
   struct grid *grid; /* grid data */
+	const struct grid_line	*gl;
   u_int x;
   u_int y;
-  u_int sx;
-  u_int sy;
+  u_int curx;
+  u_int cury;
+  u_int sx; /* size x */
+  u_int sy; /* size y */
 };
 
 struct msg_stdin_data {
@@ -2228,7 +2231,7 @@ int	 attributes_fromstring(const char *);
 
 /* cmd-dabbrev.c */
 struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
-wchar_t cmd_dabbrev_get_next_grid_cell(struct grid_handle *);
+wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *);
 
 /* grid.c */
 extern const struct grid_cell grid_default_cell;
