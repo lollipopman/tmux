@@ -28,18 +28,15 @@
  * Dynamic Abbreviate, i.e. dabbrev
  */
 
-static char *cmd_dabbrev_gd_buf(char *, struct grid *, u_int, size_t *);
 static void display_completions(wchar_t **matches, int num_matches,
                                 int hint_len, struct client *c,
                                 struct cmd_find_state *fs,
                                 struct window_pane *wp);
-static int prefix_hint(char **hint, struct window_pane *wp);
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 
-static char *cmd_dabbrev_append(char *, size_t *, char *, size_t);
-static char *cmd_dabbrev_window_history(struct window_pane *, size_t *);
 struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
 wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *);
+static int grid_get_cell_wchar(struct grid *, u_int, u_int, wint_t *);
 
 const struct cmd_entry cmd_dabbrev_entry = {
     .name = "dabbrev",
@@ -53,33 +50,6 @@ const struct cmd_entry cmd_dabbrev_entry = {
 
     .flags = CMD_AFTERHOOK,
     .exec = cmd_dabbrev_exec};
-
-static char *cmd_dabbrev_append(char *buf, size_t *buflen, char *line,
-                                size_t linelen) {
-  buf = xrealloc(buf, *buflen + linelen + 1);
-  memcpy(buf + *buflen, line, linelen);
-  *buflen += linelen;
-  return (buf);
-}
-
-static char *cmd_dabbrev_window_history(struct window_pane *wp,
-                                        size_t *buflen) {
-  u_int sx;
-  struct grid *gd;
-  char *buf = NULL;
-
-  RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
-    sx = screen_size_x(&wp->base);
-    gd = wp->base.grid;
-    buf = cmd_dabbrev_gd_buf(buf, gd, sx, buflen);
-    /* copy alternate screen to buf if available */
-    if (wp->saved_grid != NULL) {
-      gd = wp->saved_grid;
-      buf = cmd_dabbrev_gd_buf(buf, gd, sx, buflen);
-    }
-  }
-  return (buf);
-}
 
 struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
   struct grid_handle *gh;
@@ -113,13 +83,11 @@ struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
 
 wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
 
-  enum utf8_state utf8s;
   wint_t wc;
-  struct grid_cell gc;
+  int got_wc;
   const struct grid_line *last_gl;
   u_int xx, yy;
   FILE *cell_log;
-  int found_wchar;
   struct grid *gd;
 
   gd = gh->grid;
@@ -127,8 +95,9 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
   cell_log = fopen("/tmp/cell_log.out", "a");
   fwprintf(cell_log, L"\nBEGIN GET WCHAR\n");
 
-  /* loop over each line */
-  found_wchar = 0;
+  /* Loop over each line in the grid until we find a wchar to return, start
+   * where we last left off based off the state in gh */
+  got_wc = 0;
   for (yy = gh->cury; (yy < gh->y + gh->sy) && (yy < gd->hsize + gd->sy);
        yy++) {
     fwprintf(cell_log, L"top of y for\n");
@@ -140,11 +109,11 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
       gh->gl = grid_peek_line(gd, yy);
       gh->cury = yy;
       gh->curx = gh->x;
-      /* if there was a previous line, which was not wrapped emit a '\n' */
-      if (last_gl != NULL && ((last_gl->flags & GRID_LINE_WRAPPED) == 0)) {
+      /* if the previous line was not wrapped emit a '\n' */
+      if ((last_gl->flags & GRID_LINE_WRAPPED) == 0) {
         fwprintf(cell_log, L"previous line y:%d not wrapped\n", yy - 1);
-        found_wchar = 1;
         wc = L'\n';
+        got_wc = 1;
         break;
       }
     }
@@ -152,32 +121,14 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
     /* loop over each column in a line */
     for (xx = gh->curx; (xx < gh->x + gh->sx) && (xx < gh->gl->cellsize);
          xx++) {
-      fwprintf(cell_log, L"top of x for\n");
-      fwprintf(cell_log, L"get cell: %d,%d\n", xx, yy);
-      fflush(cell_log);
-
-      grid_get_cell(gd, xx, yy, &gc);
-      if (gc.flags & GRID_FLAG_PADDING) {
-        fwprintf(cell_log, L"\tcell is padded\n");
-        continue;
-      } else if (gc.flags & GRID_FLAG_CLEARED) {
-        fwprintf(cell_log, L"\tcell is cleared\n");
-        continue;
-      } else {
-        utf8s = utf8_combine(&gc.data, &wc);
-        if (utf8s == UTF8_ERROR) {
-          fwprintf(cell_log, L"\tbad utf8 combine\n");
-          wc = L'?';
-        }
-        found_wchar = 1;
+      if (grid_get_cell_wchar(gd, xx, yy, &wc)) {
         gh->curx = xx + 1;
-        fwprintf(cell_log, L"found wchar break, '%lc'\n", wc);
+        got_wc = 1;
         break;
       }
-      fwprintf(cell_log, L"end of x for\n");
     }
 
-    if (found_wchar) {
+    if (got_wc) {
       fwprintf(cell_log, L"found wchar break\n");
       break;
     }
@@ -186,107 +137,32 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
     fflush(cell_log);
   }
 
-  if (!found_wchar) {
-    fwprintf(cell_log, L"Never found wchar_t returning!: 'WEOF'\n");
-    wc = WEOF;
-  }
-  if (wc == WEOF) {
-    fwprintf(cell_log, L"done got wchar_t: 'WEOF'\n");
+  if (got_wc) {
+    fwprintf(cell_log, L"done got wchar_t: '%lc' returning\n", wc);
+    fclose(cell_log);
+    return (wc);
   } else {
-    fwprintf(cell_log, L"done got wchar_t: '%lc'\n", wc);
+    fwprintf(cell_log, L"Never found wchar_t returning!: 'WEOF'\n");
+    fclose(cell_log);
+    return (WEOF);
   }
-  fwprintf(cell_log, L"END GET WCHAR\n");
-  fclose(cell_log);
-  return (wc);
 }
 
-static char *cmd_dabbrev_gd_buf(char *buf, struct grid *gd, u_int sx,
-                                size_t *buflen) {
-  struct grid_cell *gc = NULL;
-  const struct grid_line *gl;
-  int with_codes, escape_c0, trim;
-  u_int i, top, bottom;
-  size_t linelen;
-  char *line;
+static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wc) {
+  struct grid_cell gc;
 
-  top = 0;
-  with_codes = 0;
-  escape_c0 = 0;
-  trim = 0;
+  grid_get_cell(gd, x, y, &gc);
 
-  bottom = gd->hsize + gd->sy - 1;
-
-  for (i = top; i <= bottom; i++) {
-    line = grid_string_cells(gd, 0, i, sx, &gc, with_codes, escape_c0, trim);
-    linelen = strlen(line);
-
-    buf = cmd_dabbrev_append(buf, buflen, line, linelen);
-
-    gl = grid_peek_line(gd, i);
-    if (!(gl->flags & GRID_LINE_WRAPPED)) {
-      buf[(*buflen)++] = '\n';
+  if (gc.flags & GRID_FLAG_PADDING) {
+    return (0);
+  } else if (gc.flags & GRID_FLAG_CLEARED) {
+    return (0);
+  } else {
+    if (utf8_combine(&gc.data, wc) == UTF8_ERROR) {
+      *wc = L'?';
     }
-
-    free(line);
+    return (1);
   }
-
-  return buf;
-}
-
-static int prefix_hint(char **strp, struct window_pane *wp) {
-  int with_codes, escape_c0, trim;
-  struct screen *s = &wp->base;
-  struct grid *gd;
-  char *hint_buf;
-  char *hint;
-  struct grid_cell *gc = NULL;
-  char *buf;
-  size_t len;
-  int i;
-  int max_hint_len = 2048;
-  int col_start, col_end, row;
-
-  with_codes = 0;
-  escape_c0 = 0;
-  trim = 0;
-  gd = wp->base.grid;
-
-  log_debug("%s: %s", __func__, "begin");
-  col_start = 0;
-  row = s->cy;
-  col_end = s->cx;
-  log_debug("%s: cx: %d", __func__, s->cx);
-  log_debug("%s: cy: %d", __func__, s->cy);
-  log_debug("%s: row: %d", __func__, row);
-  log_debug("%s: col start: %d", __func__, col_start);
-  log_debug("%s: col end: %d", __func__, col_end);
-  buf = grid_string_cells(gd, col_start, row, col_end, &gc, with_codes,
-                          escape_c0, trim);
-  log_debug("%s: buf '%s'", __func__, buf);
-  len = strlen(buf);
-
-  hint_buf = malloc(max_hint_len * sizeof(char));
-  hint = &(hint_buf[max_hint_len - 1]);
-  *hint = '\0';
-
-  /* walk string backwards for hint */
-  for (i = len; i >= 0; i--) {
-    if (buf[i] == ' ') {
-      break;
-    } else {
-      hint--;
-      /* hint is too long for str buffer */
-      if (hint < hint_buf) {
-        return (-1);
-      }
-      *hint = buf[i];
-    }
-  }
-  log_debug("%s: word '%s'", __func__, hint);
-  *strp = xstrdup(hint);
-  free(hint_buf);
-  log_debug("%s: %s", __func__, "success");
-  return (0);
 }
 
 /*
@@ -387,13 +263,6 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   /*   return (CMD_RETURN_ERROR); */
   /* } */
   wcprefix_hint(&hint, wp);
-
-  /* 2. grab buffer panes */
-  /* histlen = 0; */
-  /* buf = cmd_dabbrev_window_history(wp, &histlen); */
-  /* if (buf == NULL) { */
-  /*   return (CMD_RETURN_ERROR); */
-  /* } */
 
   log_debug("%s: %s", __func__, "complete_hint");
   num_matches = complete_hint(wp, hint, &matches);
