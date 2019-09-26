@@ -37,7 +37,7 @@ struct input_state {
 
 void dabbrev_parser_init(struct input_ctx *);
 int last_word(struct grid_handle *, wchar_t **);
-size_t complete_hint(struct window_pane *, const wchar_t *, wchar_t ***);
+size_t complete_hint(struct window_pane *, const wchar_t *, wchar_t const ***);
 int parse_grid(struct grid_handle *, struct input_ctx *);
 static void input_set_state(struct input_ctx *,
                             const struct input_transition *);
@@ -232,7 +232,7 @@ static void input_set_state(struct input_ctx *ictx,
 }
 
 size_t complete_hint(struct window_pane *wp, const wchar_t *hint,
-                     wchar_t ***word_list) {
+                     wchar_t const ***word_list) {
   struct input_ctx *ictx;
   struct grid_handle *gh;
 

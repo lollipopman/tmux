@@ -28,7 +28,7 @@
  * Dynamic Abbreviate, i.e. dabbrev
  */
 
-static void display_completions(wchar_t **matches, int num_matches,
+static void display_completions(wchar_t const **matches, int num_matches,
                                 int hint_len, struct client *c,
                                 struct cmd_find_state *fs,
                                 struct window_pane *wp);
@@ -197,17 +197,17 @@ static int wcprefix_hint(wchar_t **wcs, struct window_pane *wp) {
   return (1);
 }
 
-static char *wcstr_tombs(wchar_t **wcstr) {
+static char *wcstr_tombs(wchar_t const **wcstr) {
   size_t len;
   char *s;
 
   len = wcsrtombs(NULL, wcstr, 0, NULL);
   s = xmalloc(len + 1);
-  wcsrtombs(s, wcstr, len, NULL);
+  wcsrtombs(s, wcstr, len + 1, NULL);
   return (s);
 }
 
-static void display_completions(wchar_t **matches, int num_matches,
+static void display_completions(wchar_t const **matches, int num_matches,
                                 int hint_len, struct client *c,
                                 struct cmd_find_state *fs,
                                 struct window_pane *wp) {
@@ -225,7 +225,7 @@ static void display_completions(wchar_t **matches, int num_matches,
   key = 'a';
   for (i = 0; i < num_matches; i++) {
     match = wcstr_tombs(&(matches[i]));
-    log_debug("%s: %s", __func__, "match converted");
+    log_debug("%s: %s '%s'", __func__, "match converted", match);
     menu_item.name = match;
     menu_item.key = key;
     asprintf(&cmd, "%s%s", "send-keys -l ", match + hint_len);
@@ -254,7 +254,7 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   wchar_t *hint;
   struct cmd_find_state *fs = &item->target;
   struct client *c;
-  wchar_t **matches;
+  wchar_t const **matches;
 
   c = item->client;
 

@@ -25,4 +25,4 @@ struct wchar_node {
 };
 
 void word_add(struct wchar_node **, const wchar_t *);
-size_t word_gather(struct wchar_node *, const wchar_t *, wchar_t ***);
+size_t word_gather(struct wchar_node *, const wchar_t *, wchar_t const ***);

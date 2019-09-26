@@ -10,5 +10,5 @@
 #include <wctype.h>
 #include "tmux.h"
 
-int complete_hint(struct window_pane *, const wchar_t *, wchar_t ***);
+size_t complete_hint(struct window_pane *, const wchar_t *, wchar_t const ***);
 int last_word(struct grid_handle *, wchar_t **);

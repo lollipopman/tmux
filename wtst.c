@@ -32,9 +32,9 @@ static wchar_t *word_find(struct wchar_node *, const wchar_t *, size_t,
 static struct wchar_node *word_prefix(struct wchar_node *, const wchar_t *);
 static struct wchar_node *word_prefix1(struct wchar_node *, const wchar_t *,
                                        size_t);
-size_t word_gather(struct wchar_node *, const wchar_t *, wchar_t ***);
-static void word_gather1(struct wchar_node *, const wchar_t *, wchar_t ***,
-                         size_t *);
+size_t word_gather(struct wchar_node *, const wchar_t *, wchar_t const ***);
+static void word_gather1(struct wchar_node *, const wchar_t *,
+                         wchar_t const ***, size_t *);
 
 /* Add next node to the tree. */
 void word_add(struct wchar_node **wnp, const wchar_t *s) {
@@ -195,7 +195,7 @@ static void word_print(struct wchar_node *wn, const wchar_t *s_prefix) {
 }
 
 size_t word_gather(struct wchar_node *wn_root, const wchar_t *s_prefix,
-                   wchar_t ***word_listp) {
+                   wchar_t const ***word_listp) {
   size_t num_words;
 
   *word_listp = NULL;
@@ -206,7 +206,7 @@ size_t word_gather(struct wchar_node *wn_root, const wchar_t *s_prefix,
 }
 
 static void word_gather1(struct wchar_node *wn, const wchar_t *s_prefix,
-                         wchar_t ***word_listp, size_t *num_wordsp) {
+                         wchar_t const ***word_listp, size_t *num_wordsp) {
   int prefix_len;
   wchar_t *word;
 
