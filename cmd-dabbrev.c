@@ -116,6 +116,7 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
   enum utf8_state utf8s;
   wint_t wc;
   struct grid_cell gc;
+  const struct grid_line *last_gl;
   u_int xx, yy;
   FILE *cell_log;
   int found_wchar;
@@ -126,48 +127,40 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
   cell_log = fopen("/tmp/cell_log.out", "a");
   fwprintf(cell_log, L"\nBEGIN GET WCHAR\n");
 
+  /* loop over each line */
   found_wchar = 0;
-  for (yy = gh->cury; yy < gh->y + gh->sy; yy++) {
+  for (yy = gh->cury; (yy < gh->y + gh->sy) && (yy < gd->hsize + gd->sy);
+       yy++) {
     fwprintf(cell_log, L"top of y for\n");
 
+    /* get new line if necessary */
     if (gh->cury != yy) {
-      gh->curx = gh->x;
       fwprintf(cell_log, L"Need new line!\n");
-      gh->cury = yy;
-      if (yy >= gd->hsize + gd->sy) {
-        fwprintf(cell_log, L"End of grid WEOF\n");
-        found_wchar = 1;
-        wc = WEOF;
-        break;
-      }
+      last_gl = gh->gl;
       gh->gl = grid_peek_line(gd, yy);
-      if (gh->gl->flags & GRID_LINE_WRAPPED) {
-        /* grab char from new line */
-        fwprintf(cell_log, L"wrapped line\n");
-      } else {
+      gh->cury = yy;
+      gh->curx = gh->x;
+      /* if there was a previous line, which was not wrapped emit a '\n' */
+      if (last_gl != NULL && ((last_gl->flags & GRID_LINE_WRAPPED) == 0)) {
+        fwprintf(cell_log, L"previous line y:%d not wrapped\n", yy - 1);
         found_wchar = 1;
         wc = L'\n';
         break;
       }
     }
 
-    for (xx = gh->curx; xx < gh->x + gh->sx; xx++) {
+    /* loop over each column in a line */
+    for (xx = gh->curx; (xx < gh->x + gh->sx) && (xx < gh->gl->cellsize);
+         xx++) {
       fwprintf(cell_log, L"top of x for\n");
+      fwprintf(cell_log, L"get cell: %d,%d\n", xx, yy);
       fflush(cell_log);
 
-      /* XXX Need a new line, put in func? */
-      if (gh->gl == NULL || xx >= gh->gl->cellsize) {
-        fwprintf(cell_log, L"gl is NULL or xx > cellsize\n");
-        break;
-      }
-
-      fwprintf(cell_log, L"get cell: %d,%d\n", xx, yy);
       grid_get_cell(gd, xx, yy, &gc);
       if (gc.flags & GRID_FLAG_PADDING) {
         fwprintf(cell_log, L"\tcell is padded\n");
         continue;
       } else if (gc.flags & GRID_FLAG_CLEARED) {
-        /* XXX should I get here? */
         fwprintf(cell_log, L"\tcell is cleared\n");
         continue;
       } else {
@@ -194,6 +187,7 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
   }
 
   if (!found_wchar) {
+    fwprintf(cell_log, L"Never found wchar_t returning!: 'WEOF'\n");
     wc = WEOF;
   }
   if (wc == WEOF) {
@@ -296,7 +290,8 @@ static int prefix_hint(char **strp, struct window_pane *wp) {
 }
 
 /*
- * XXX: support wrapped lines
+ * XXX: support wrapped lines, i.e. if previous line was wrapped join it with
+ * this line before parsing
  */
 static int wcprefix_hint(wchar_t **wcs, struct window_pane *wp) {
   struct screen *s = &wp->base;
