@@ -121,7 +121,7 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
   return (WEOF);
 }
 
-static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wc) {
+static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wcp) {
   struct grid_cell gc;
 
   grid_get_cell(gd, x, y, &gc);
@@ -131,9 +131,9 @@ static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wc) {
   } else if (gc.flags & GRID_FLAG_CLEARED) {
     return (0);
   } else {
-    if (utf8_combine(&gc.data, wc) == UTF8_ERROR) {
+    if (utf8_combine(&gc.data, wcp) == UTF8_ERROR) {
       /* on error use the unicode replacement char */
-      *wc = L'\xfffd';
+      *wcp = L'\xfffd';
     }
     return (1);
   }
