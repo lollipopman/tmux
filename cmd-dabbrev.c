@@ -232,20 +232,14 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
 
   c = item->client;
 
-  /* 1. grab hint */
-  /* if (prefix_hint(&hint, wp) != 0) { */
-  /*   return (CMD_RETURN_ERROR); */
-  /* } */
   wcprefix_hint(&hint, wp);
+  log_debug("%s: %s", __func__, "wcprefix_hint complete");
 
-  log_debug("%s: %s", __func__, "complete_hint");
   num_matches = complete_hint(wp, hint, &matches);
+  log_debug("%s: complete_hint num_matches: %d", __func__, num_matches);
 
-  log_debug("%s: %s: %d", __func__, "display matches", num_matches);
-  /* 5. display completions */
   display_completions(matches, num_matches, wcslen(hint), c, fs, wp);
 
-  /* 6. cleanup */
   log_debug("%s: %s", __func__, "start cleanup");
   /* free(hint); */
   /* for (i = 0; i < num_words; i++) { */
@@ -254,6 +248,6 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   /* free(words); */
   log_debug("%s: %s", __func__, "end cleanup");
 
-  log_debug("%s: %s", __func__, "dabbrev success");
+  log_debug("%s: %s", __func__, "success return");
   return (CMD_RETURN_NORMAL);
 }
