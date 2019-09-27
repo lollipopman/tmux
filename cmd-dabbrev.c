@@ -82,70 +82,43 @@ struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
  */
 
 wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
-
   wint_t wc;
-  int got_wc;
   const struct grid_line *last_gl;
   u_int xx, yy;
-  FILE *cell_log;
   struct grid *gd;
 
   gd = gh->grid;
 
-  cell_log = fopen("/tmp/cell_log.out", "a");
-  fwprintf(cell_log, L"\nBEGIN GET WCHAR\n");
-
   /* Loop over each line in the grid until we find a wchar to return, start
    * where we last left off based off the state in gh */
-  got_wc = 0;
   for (yy = gh->cury; (yy < gh->y + gh->sy) && (yy < gd->hsize + gd->sy);
        yy++) {
-    fwprintf(cell_log, L"top of y for\n");
 
     /* get new line if necessary */
     if (gh->cury != yy) {
-      fwprintf(cell_log, L"Need new line!\n");
       last_gl = gh->gl;
       gh->gl = grid_peek_line(gd, yy);
       gh->cury = yy;
       gh->curx = gh->x;
-      /* if the previous line was not wrapped emit a '\n' */
+      /* if the previous line was not wrapped emit a '\n' to finish the
+       * previous line */
       if ((last_gl->flags & GRID_LINE_WRAPPED) == 0) {
-        fwprintf(cell_log, L"previous line y:%d not wrapped\n", yy - 1);
-        wc = L'\n';
-        got_wc = 1;
-        break;
+        return (L'\n');
       }
     }
 
-    /* loop over each column in a line */
+    /* loop over each cell in the line */
     for (xx = gh->curx; (xx < gh->x + gh->sx) && (xx < gh->gl->cellsize);
          xx++) {
       if (grid_get_cell_wchar(gd, xx, yy, &wc)) {
         gh->curx = xx + 1;
-        got_wc = 1;
-        break;
+        return (wc);
       }
     }
-
-    if (got_wc) {
-      fwprintf(cell_log, L"found wchar break\n");
-      break;
-    }
-
-    fwprintf(cell_log, L"end of y for\n");
-    fflush(cell_log);
   }
 
-  if (got_wc) {
-    fwprintf(cell_log, L"done got wchar_t: '%lc' returning\n", wc);
-    fclose(cell_log);
-    return (wc);
-  } else {
-    fwprintf(cell_log, L"Never found wchar_t returning!: 'WEOF'\n");
-    fclose(cell_log);
-    return (WEOF);
-  }
+  /* end of grid rectangle */
+  return (WEOF);
 }
 
 static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wc) {
