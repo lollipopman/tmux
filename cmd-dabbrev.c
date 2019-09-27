@@ -28,10 +28,8 @@
  * Dynamic Abbreviate, i.e. dabbrev
  */
 
-static void display_completions(wchar_t const **matches, int num_matches,
-                                int hint_len, struct client *c,
-                                struct cmd_find_state *fs,
-                                struct window_pane *wp);
+static int display_completions(wchar_t const **, u_int, u_int, struct client *,
+                               struct cmd_find_state *);
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 
 struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
@@ -181,20 +179,18 @@ static char *wcstr_tombs(wchar_t const **wcstr) {
   return (s);
 }
 
-static void display_completions(wchar_t const **matches, int num_matches,
-                                int hint_len, struct client *c,
-                                struct cmd_find_state *fs,
-                                struct window_pane *wp) {
-  struct screen *s = &wp->base;
+static int display_completions(wchar_t const **matches, u_int num_matches,
+                               u_int hint_len, struct client *c,
+                               struct cmd_find_state *fs) {
   struct menu *menu = NULL;
   struct menu_item menu_item;
   char key;
   int flags = 0;
-  int i, m_x, m_y, m_h;
+  u_int i, px, py, menu_height;
   char *cmd = NULL;
   char *match;
 
-  log_debug("%s: %s", __func__, "start menu");
+  log_debug("%s: start menu cursor: %d,%d", __func__, c->tty.cx, c->tty.cy);
   menu = menu_create("");
   key = 'a';
   for (i = 0; i < num_matches; i++) {
@@ -202,29 +198,36 @@ static void display_completions(wchar_t const **matches, int num_matches,
     log_debug("%s: %s '%s'", __func__, "match converted", match);
     menu_item.name = match;
     menu_item.key = key;
-    asprintf(&cmd, "%s%s", "send-keys -l ", match + hint_len);
+    xasprintf(&cmd, "%s%s", "send-keys -l ", match + hint_len);
     menu_item.command = cmd;
     menu_add_item(menu, &menu_item, NULL, c, fs);
     key++;
   }
-  m_h = menu->count + 2;
-  m_x = wp->xoff + s->cx - hint_len - 2;
-  /* If menu is too large to place below the cursor then place it above the
-   * cursor */
-  if ((wp->yoff + s->cy + m_h) > wp->window->sy) {
-    m_y = wp->yoff + s->cy - m_h;
+  menu_height = menu->count + 2;
+
+  /* place the menu below the cursor, but if there is not enough room place it
+   * above the cursor */
+  if (c->tty.cy + menu_height < c->tty.sy) {
+    py = c->tty.cy + 1;
   } else {
-    m_y = wp->yoff + s->cy + 1;
+    py = c->tty.cy - menu_height;
+  }
+  /* place the menu so the completions line up with the hint, if there is not
+   * enough room place it at the cursor */
+  if (c->tty.cx >= hint_len + 2) {
+    px = c->tty.cx - hint_len - 2;
+  } else {
+    px = c->tty.cx;
   }
   log_debug("%s: %s", __func__, "ready to display menu");
-  menu_display(menu, flags, NULL, m_x, m_y, c, fs, NULL, NULL);
-  log_debug("%s: %s", __func__, "end menu");
+  return (menu_display(menu, flags, NULL, px, py, c, fs, NULL, NULL));
 }
 
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
                                         struct cmdq_item *item) {
   struct window_pane *wp = item->target.wp;
-  int num_matches = 0;
+  u_int num_matches = 0;
+  int dabbrev_exec_error = 0;
   wchar_t *hint;
   struct cmd_find_state *fs = &item->target;
   struct client *c;
@@ -238,7 +241,9 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   num_matches = complete_hint(wp, hint, &matches);
   log_debug("%s: complete_hint num_matches: %d", __func__, num_matches);
 
-  display_completions(matches, num_matches, wcslen(hint), c, fs, wp);
+  if (display_completions(matches, num_matches, wcslen(hint), c, fs) != 0) {
+    dabbrev_exec_error = 1;
+  }
 
   log_debug("%s: %s", __func__, "start cleanup");
   /* free(hint); */
@@ -249,5 +254,10 @@ static enum cmd_retval cmd_dabbrev_exec(struct cmd *self,
   log_debug("%s: %s", __func__, "end cleanup");
 
   log_debug("%s: %s", __func__, "success return");
-  return (CMD_RETURN_NORMAL);
+  if (dabbrev_exec_error) {
+    cmdq_error(item, "Screen too small to display completions");
+    return (CMD_RETURN_ERROR);
+  } else {
+    return (CMD_RETURN_NORMAL);
+  }
 }
