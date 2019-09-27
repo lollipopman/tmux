@@ -132,7 +132,8 @@ static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wc) {
     return (0);
   } else {
     if (utf8_combine(&gc.data, wc) == UTF8_ERROR) {
-      *wc = L'?';
+      /* on error use the unicode replacement char */
+      *wc = L'\xfffd';
     }
     return (1);
   }
