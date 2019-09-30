@@ -501,6 +501,7 @@ struct grid_handle {
   u_int y;
   u_int curx;
   u_int cury;
+  u_int endx;
   u_int sx; /* size x */
   u_int sy; /* size y */
 };

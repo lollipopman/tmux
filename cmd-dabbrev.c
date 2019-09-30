@@ -62,6 +62,7 @@ struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
   gh->y = 0;
   gh->curx = 0;
   gh->cury = 0;
+  gh->endx = gd->sx - 1;
   gh->sx = gd->sx;
   gh->sy = gd->sy;
 
@@ -106,7 +107,8 @@ wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
     }
 
     /* loop over each cell in the line */
-    for (xx = gh->curx; (xx < gh->x + gh->sx) && (xx < gh->gl->cellsize);
+    for (xx = gh->curx; (xx < gh->x + gh->sx) && (xx < gh->gl->cellsize) &&
+                        !(yy == gh->y + gh->sy - 1 && xx > gh->endx);
          xx++) {
       if (grid_get_cell_wchar(gd, xx, yy, &wc)) {
         gh->curx = xx + 1;
@@ -137,31 +139,59 @@ static int grid_get_cell_wchar(struct grid *gd, u_int x, u_int y, wint_t *wcp) {
   }
 }
 
-/*
- * XXX: support wrapped lines, i.e. if previous line was wrapped join it with
- * this line before parsing
- */
 static int wcprefix_hint(wchar_t **wcs, struct window_pane *wp) {
   struct screen *s = &wp->base;
   struct grid_handle *gh;
   struct grid *gd;
+  const struct grid_line *gl;
+  u_int py;
+  int yy;
+
+  gd = wp->base.grid;
+  gh = xmalloc(sizeof *gh);
 
   log_debug("%s: %s", __func__, "begin");
 
-  gd = wp->base.grid;
+  /* find beginning of wrapped line */
+  py = s->cy;
+  for (yy = s->cy - 1; yy >= 0; yy--) {
+    gl = grid_peek_line(gd, yy);
+    if (gl->flags & GRID_LINE_WRAPPED) {
+      py = yy;
+    } else {
+      break;
+    }
+  }
 
-  gh = xmalloc(sizeof *gh);
+  /* if cx is 0 stop at the end of the previous line */
+  if (s->cx == 0) {
+    if (py < s->cy) {
+      gh->endx = gd->sx - 1;
+      gh->sy = s->cy - py;
+    } else {
+      gh->endx = 0;
+      gh->sy = 0;
+    }
+  } else {
+    gh->endx = gh->sx - 1;
+    gh->sy = s->cy - py + 1;
+  }
+
   gh->grid = gd;
-  gh->gl = grid_peek_line(gd, s->cy);
+  gh->gl = grid_peek_line(gd, py);
   gh->x = 0;
-  gh->y = s->cy;
+  gh->y = py;
   gh->curx = 0;
-  gh->cury = s->cy;
-  gh->sx = s->cx;
-  gh->sy = 1;
+  gh->cury = py;
+  gh->sx = gd->sx;
 
   log_debug("%s: cx: %d", __func__, s->cx);
   log_debug("%s: cy: %d", __func__, s->cy);
+  log_debug("%s: x: %d", __func__, gh->x);
+  log_debug("%s: y: %d", __func__, gh->y);
+  log_debug("%s: endx: %d", __func__, gh->endx);
+  log_debug("%s: sx: %d", __func__, gh->sx);
+  log_debug("%s: sy: %d", __func__, gh->sy);
 
   last_word(gh, wcs);
   log_debug("%s: done parsing", __func__);
