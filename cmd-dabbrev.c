@@ -69,17 +69,6 @@ struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
   return (gh);
 }
 
-/*
- * 1. check if cell is in line
- *   1a. if it is not get the next line
- *     1i. if line is wrapped get first char of new line
- *     1ii. else return \n
- *   1b. else
- *     1i. if the cell is paded skip to the next cell
- *     1i. else return cell
- *
- */
-
 wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *gh) {
   wint_t wc;
   const struct grid_line *last_gl;
