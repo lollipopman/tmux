@@ -2231,7 +2231,7 @@ const char *attributes_tostring(int);
 int	 attributes_fromstring(const char *);
 
 /* cmd-dabbrev.c */
-struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
+struct grid_handle *cmd_dabbrev_open_grid(struct grid *);
 wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *);
 
 /* grid.c */

@@ -234,18 +234,20 @@ static void input_set_state(struct input_ctx *ictx,
 size_t complete_hint(struct window_pane *wp, const wchar_t *hint,
                      wchar_t const ***word_list) {
   struct input_ctx *ictx;
-  struct grid_handle *gh;
   u_int cur_win_id;
 
   ictx = xcalloc(1, sizeof *ictx);
   dabbrev_parser_init(ictx);
 
-  /* complete hint on any pane in window */
+  /* complete hint on any pane in window, including the alternative screen */
   cur_win_id = wp->window->id;
   RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
     if (wp->window->id == cur_win_id) {
-      gh = cmd_dabbrev_open_grid(wp);
-      parse_grid(gh, ictx);
+      parse_grid(cmd_dabbrev_open_grid(wp->base.grid), ictx);
+      /* parse alternate screen if available */
+      if (wp->saved_grid != NULL) {
+        parse_grid(cmd_dabbrev_open_grid(wp->saved_grid), ictx);
+      }
     }
   }
 

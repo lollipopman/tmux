@@ -32,7 +32,7 @@ static int display_completions(wchar_t const **, u_int, u_int, struct client *,
                                struct cmd_find_state *);
 static enum cmd_retval cmd_dabbrev_exec(struct cmd *, struct cmdq_item *);
 
-struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *);
+struct grid_handle *cmd_dabbrev_open_grid(struct grid *);
 wint_t cmd_dabbrev_get_next_grid_wchar(struct grid_handle *);
 static int grid_get_cell_wchar(struct grid *, u_int, u_int, wint_t *);
 
@@ -49,11 +49,8 @@ const struct cmd_entry cmd_dabbrev_entry = {
     .flags = CMD_AFTERHOOK,
     .exec = cmd_dabbrev_exec};
 
-struct grid_handle *cmd_dabbrev_open_grid(struct window_pane *wp) {
+struct grid_handle *cmd_dabbrev_open_grid(struct grid *gd) {
   struct grid_handle *gh;
-  struct grid *gd;
-
-  gd = wp->base.grid;
 
   gh = xmalloc(sizeof *gh);
   gh->grid = gd;
