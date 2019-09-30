@@ -235,11 +235,20 @@ size_t complete_hint(struct window_pane *wp, const wchar_t *hint,
                      wchar_t const ***word_list) {
   struct input_ctx *ictx;
   struct grid_handle *gh;
+  u_int cur_win_id;
 
-  gh = cmd_dabbrev_open_grid(wp);
   ictx = xcalloc(1, sizeof *ictx);
   dabbrev_parser_init(ictx);
-  parse_grid(gh, ictx);
+
+  /* complete hint on any pane in window */
+  cur_win_id = wp->window->id;
+  RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
+    if (wp->window->id == cur_win_id) {
+      gh = cmd_dabbrev_open_grid(wp);
+      parse_grid(gh, ictx);
+    }
+  }
+
   return (word_gather(ictx->wtst_root, hint, word_list));
 }
 
